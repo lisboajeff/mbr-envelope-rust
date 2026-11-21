@@ -135,4 +135,27 @@ mod tests {
         let data = env.extrair_data().expect("envelope certificado");
         assert_eq!(data["ticker"], "VALE3");
     }
+
+    #[test]
+    fn deve_certificar_ultimo_step_e_bloquear_dupla_certificacao() {
+        let mut env = Envelope::criar_inicial(
+            "topic.a",
+            "s",
+            "1.0.0",
+            "infraestrutura.mbr-dispatcher",
+            "pod-1",
+            "disparo",
+            json!({"ticker": "ITUB4"}),
+        )
+        .expect("envelope valido");
+
+        env.certificar_ultimo_step("infraestrutura.validador-central", "val-1")
+            .expect("certificacao valida");
+        assert!(env.validar_certificado().is_ok());
+
+        let err = env
+            .certificar_ultimo_step("infraestrutura.validador-central", "val-1")
+            .expect_err("nao pode certificar duas vezes");
+        assert!(matches!(err, EnvelopeError::PreCertificacaoProibida(1)));
+    }
 }

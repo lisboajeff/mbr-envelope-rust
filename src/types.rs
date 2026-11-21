@@ -215,6 +215,37 @@ impl<T> Envelope<T> {
         self.validar_certificado()?;
         Ok(&self.data)
     }
+
+    /// Certifica o ultimo `step` do `trace` apos validacao pelo Validador Central.
+    ///
+    /// # Errors
+    /// Retorna `EnvelopeError` se a cadeia estiver invalida, se o ultimo step ja estiver certificado
+    /// ou se `validator_service_name` / `validator_process_id` estiverem vazios.
+    pub fn certificar_ultimo_step(
+        &mut self,
+        validator_service_name: impl Into<String>,
+        validator_process_id: impl Into<String>,
+    ) -> Result<(), EnvelopeError> {
+        self.validar_para_certificacao()?;
+        let service_name =
+            validar_nao_vazio(validator_service_name.into(), "schema_validation.validator_service_name")?;
+        let process_id =
+            validar_nao_vazio(validator_process_id.into(), "schema_validation.validator_process_id")?;
+
+        let schema_name = self.metadata.schema_name.clone();
+        let schema_version = self.metadata.schema_version.clone();
+        if let Some(ultimo) = self.trace.last_mut() {
+            ultimo.schema_validation = Some(SchemaValidation {
+                validated: true,
+                schema_name,
+                schema_version,
+                validated_at: Utc::now(),
+                validator_service_name: service_name,
+                validator_process_id: process_id,
+            });
+        }
+        Ok(())
+    }
 }
 
 fn validar_nao_vazio(valor: String, campo: &'static str) -> Result<String, EnvelopeError> {
