@@ -105,5 +105,34 @@ mod tests {
         assert_eq!(proximo.trace[1].step, 2);
         assert!(proximo.trace[1].schema_validation.is_none());
         assert!(proximo.validar_para_certificacao().is_ok());
+        assert!(proximo.validar_certificado().is_err());
+    }
+
+    #[test]
+    fn deve_validar_certificado_e_extrair_data_com_seguranca() {
+        let mut env = Envelope::criar_inicial(
+            "topic.a",
+            "s",
+            "1.0.0",
+            "infraestrutura.mbr-dispatcher",
+            "pod-1",
+            "disparo",
+            json!({"ticker": "VALE3"}),
+        )
+        .expect("envelope valido");
+
+        assert!(env.extrair_data_ref().is_err());
+
+        env.trace[0].schema_validation = Some(SchemaValidation {
+            validated: true,
+            schema_name: "s".to_string(),
+            schema_version: "1.0.0".to_string(),
+            validated_at: Utc::now(),
+            validator_service_name: "infraestrutura.validador-central".to_string(),
+            validator_process_id: "val-1".to_string(),
+        });
+
+        let data = env.extrair_data().expect("envelope certificado");
+        assert_eq!(data["ticker"], "VALE3");
     }
 }

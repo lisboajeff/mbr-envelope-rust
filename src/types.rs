@@ -176,6 +176,45 @@ impl<T> Envelope<T> {
         }
         Ok(())
     }
+
+    /// Valida que todos os steps do envelope (inclusive o ultimo) foram certificados pelo Validador Central.
+    ///
+    /// # Errors
+    /// Retorna `EnvelopeError::CadeiaTraceInvalida` se o trace estiver vazio ou houver step sem certificacao valida.
+    pub fn validar_certificado(&self) -> Result<(), EnvelopeError> {
+        if self.trace.is_empty() {
+            return Err(EnvelopeError::CadeiaTraceInvalida(
+                "trace nao pode ser vazio".to_string(),
+            ));
+        }
+        for step in &self.trace {
+            if !step.schema_validation.as_ref().is_some_and(|v| v.validated) {
+                return Err(EnvelopeError::CadeiaTraceInvalida(format!(
+                    "step {} nao esta certificado",
+                    step.step
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Valida a certificacao do envelope e extrai o payload `data` com seguranca.
+    ///
+    /// # Errors
+    /// Retorna `EnvelopeError` se o envelope nao estiver totalmente certificado.
+    pub fn extrair_data(self) -> Result<T, EnvelopeError> {
+        self.validar_certificado()?;
+        Ok(self.data)
+    }
+
+    /// Valida a certificacao do envelope e retorna referencia ao payload `data`.
+    ///
+    /// # Errors
+    /// Retorna `EnvelopeError` se o envelope nao estiver totalmente certificado.
+    pub fn extrair_data_ref(&self) -> Result<&T, EnvelopeError> {
+        self.validar_certificado()?;
+        Ok(&self.data)
+    }
 }
 
 fn validar_nao_vazio(valor: String, campo: &'static str) -> Result<String, EnvelopeError> {
