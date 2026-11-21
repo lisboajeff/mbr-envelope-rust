@@ -4,7 +4,10 @@ pub mod error;
 pub mod types;
 
 pub use error::EnvelopeError;
-pub use types::{Envelope, EnvelopeMetadata, SchemaValidation, TraceStep};
+pub use types::{
+    ContextoLogEnvelope, Envelope, EnvelopeMetadata, FalhaEstruturalEvento, SchemaValidation,
+    TraceStep,
+};
 
 #[cfg(test)]
 mod tests {
@@ -157,5 +160,19 @@ mod tests {
             .certificar_ultimo_step("infraestrutura.validador-central", "val-1")
             .expect_err("nao pode certificar duas vezes");
         assert!(matches!(err, EnvelopeError::PreCertificacaoProibida(1)));
+
+        let ctx = env.contexto_log();
+        assert_eq!(ctx.topic, "topic.a");
+        assert_eq!(ctx.step_atual, 1);
+
+        let falha = FalhaEstruturalEvento::nova(
+            "SCHEMA_VIOLATION",
+            "invalido",
+            vec!["/data/preco".to_string()],
+            "topic.a",
+            "rk",
+            json!({"x": 1}),
+        );
+        assert_eq!(falha.codigo, "SCHEMA_VIOLATION");
     }
 }

@@ -33,6 +33,49 @@ pub struct EnvelopeMetadata {
     pub schema_version: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextoLogEnvelope {
+    pub event_id: Uuid,
+    pub process_instance_id: Uuid,
+    pub topic: String,
+    pub schema_name: String,
+    pub schema_version: String,
+    pub step_atual: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FalhaEstruturalEvento {
+    pub codigo: String,
+    pub mensagem: String,
+    pub violacoes: Vec<String>,
+    pub exchange_origem: String,
+    pub routing_key: String,
+    pub detectado_em: DateTime<Utc>,
+    pub payload_original: serde_json::Value,
+}
+
+impl FalhaEstruturalEvento {
+    #[must_use]
+    pub fn nova(
+        codigo: impl Into<String>,
+        mensagem: impl Into<String>,
+        violacoes: Vec<String>,
+        exchange_origem: impl Into<String>,
+        routing_key: impl Into<String>,
+        payload_original: serde_json::Value,
+    ) -> Self {
+        Self {
+            codigo: codigo.into(),
+            mensagem: mensagem.into(),
+            violacoes,
+            exchange_origem: exchange_origem.into(),
+            routing_key: routing_key.into(),
+            detectado_em: Utc::now(),
+            payload_original,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Envelope<T> {
     pub event_id: Uuid,
@@ -245,6 +288,19 @@ impl<T> Envelope<T> {
             });
         }
         Ok(())
+    }
+
+    /// Extrai campos padronizados de correlacao distribuida para logs estruturados.
+    #[must_use]
+    pub fn contexto_log(&self) -> ContextoLogEnvelope {
+        ContextoLogEnvelope {
+            event_id: self.event_id,
+            process_instance_id: self.process_instance_id,
+            topic: self.metadata.topic.clone(),
+            schema_name: self.metadata.schema_name.clone(),
+            schema_version: self.metadata.schema_version.clone(),
+            step_atual: self.trace.last().map_or(0, |s| s.step),
+        }
     }
 }
 

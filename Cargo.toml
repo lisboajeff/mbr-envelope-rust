@@ -1,6 +1,6 @@
 [package]
 name = "mbr-envelope"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2024"
 description = "Biblioteca pura para construcao e evolucao de trace do Envelope Oficial MBR"
 
