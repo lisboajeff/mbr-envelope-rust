@@ -9,4 +9,6 @@ pub enum EnvelopeError {
     CadeiaTraceInvalida(String),
     #[error("step {0} nao pode conter schema_validation na origem")]
     PreCertificacaoProibida(u32),
+    #[error("erro de serializacao JSON do envelope: {0}")]
+    SerializacaoJson(String),
 }

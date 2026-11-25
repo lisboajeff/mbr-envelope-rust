@@ -302,6 +302,188 @@ impl<T> Envelope<T> {
             step_atual: self.trace.last().map_or(0, |s| s.step),
         }
     }
+
+    /// Transforma o payload `data` preservando metadados, IDs e cadeia `trace`.
+    pub fn map_data<U>(self, f: impl FnOnce(T) -> U) -> Envelope<U> {
+        Envelope {
+            event_id: self.event_id,
+            process_instance_id: self.process_instance_id,
+            timestamp: self.timestamp,
+            metadata: self.metadata,
+            trace: self.trace,
+            data: f(self.data),
+        }
+    }
+
+    /// Deserializa o envelope completo a partir de bytes JSON.
+    ///
+    /// # Errors
+    /// Retorna `EnvelopeError::SerializacaoJson` se o JSON for invalido para `Envelope<T>`.
+    pub fn from_json_bytes(bytes: &[u8]) -> Result<Self, EnvelopeError>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        serde_json::from_slice(bytes)
+            .map_err(|e| EnvelopeError::SerializacaoJson(e.to_string()))
+    }
+
+    /// Deserializa o envelope completo a partir de string JSON.
+    ///
+    /// # Errors
+    /// Retorna `EnvelopeError::SerializacaoJson` se o JSON for invalido para `Envelope<T>`.
+    pub fn from_json_str(json: &str) -> Result<Self, EnvelopeError>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        serde_json::from_str(json)
+            .map_err(|e| EnvelopeError::SerializacaoJson(e.to_string()))
+    }
+
+    /// Serializa o envelope completo para bytes JSON.
+    ///
+    /// # Errors
+    /// Retorna `EnvelopeError::SerializacaoJson` se a serializacao falhar.
+    pub fn to_json_bytes(&self) -> Result<Vec<u8>, EnvelopeError>
+    where
+        T: Serialize,
+    {
+        serde_json::to_vec(self).map_err(|e| EnvelopeError::SerializacaoJson(e.to_string()))
+    }
+
+    /// Converte o payload `data` para `serde_json::Value` preservando o envelope.
+    ///
+    /// # Errors
+    /// Retorna `EnvelopeError::SerializacaoJson` se a conversao falhar.
+    pub fn into_value(self) -> Result<Envelope<serde_json::Value>, EnvelopeError>
+    where
+        T: Serialize,
+    {
+        let data = serde_json::to_value(&self.data)
+            .map_err(|e| EnvelopeError::SerializacaoJson(e.to_string()))?;
+        Ok(Envelope {
+            event_id: self.event_id,
+            process_instance_id: self.process_instance_id,
+            timestamp: self.timestamp,
+            metadata: self.metadata,
+            trace: self.trace,
+            data,
+        })
+    }
+
+    /// Converte o payload `data` para um tipo `U` via JSON.
+    ///
+    /// # Errors
+    /// Retorna `EnvelopeError::SerializacaoJson` se a conversao falhar.
+    pub fn parse_data<U: serde::de::DeserializeOwned>(self) -> Result<Envelope<U>, EnvelopeError>
+    where
+        T: Serialize,
+    {
+        let val = serde_json::to_value(&self.data)
+            .map_err(|e| EnvelopeError::SerializacaoJson(e.to_string()))?;
+        let parsed: U = serde_json::from_value(val)
+            .map_err(|e| EnvelopeError::SerializacaoJson(e.to_string()))?;
+        Ok(Envelope {
+            event_id: self.event_id,
+            process_instance_id: self.process_instance_id,
+            timestamp: self.timestamp,
+            metadata: self.metadata,
+            trace: self.trace,
+            data: parsed,
+        })
+    }
+}
+
+/// Alias semântico para metadados de destino na emissão/evolução de envelopes.
+pub type EnvelopeDestino = EnvelopeMetadata;
+
+/// Emissor de envelopes configurado uma única vez com a identidade do serviço/pod.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvelopeEmitter {
+    service_name: String,
+    process_id: String,
+}
+
+impl EnvelopeEmitter {
+    /// Cria um emissor validando `service_name` e `process_id`.
+    ///
+    /// # Errors
+    /// Retorna `EnvelopeError::CampoObrigatorio` se algum identificador estiver vazio.
+    pub fn new(
+        service_name: impl Into<String>,
+        process_id: impl Into<String>,
+    ) -> Result<Self, EnvelopeError> {
+        Ok(Self {
+            service_name: validar_nao_vazio(service_name.into(), "trace.service_name")?,
+            process_id: validar_nao_vazio(process_id.into(), "trace.process_id")?,
+        })
+    }
+
+    #[must_use]
+    pub fn service_name(&self) -> &str {
+        &self.service_name
+    }
+
+    #[must_use]
+    pub fn process_id(&self) -> &str {
+        &self.process_id
+    }
+
+    /// Cria um envelope inicial (`step = 1`) usando a identidade do serviço configurada.
+    ///
+    /// # Errors
+    /// Retorna `EnvelopeError` se destino ou `responsibility` estiverem vazios.
+    pub fn iniciar<T>(
+        &self,
+        destino: EnvelopeDestino,
+        responsibility: impl Into<String>,
+        data: T,
+    ) -> Result<Envelope<T>, EnvelopeError> {
+        Envelope::criar_inicial(
+            destino.topic,
+            destino.schema_name,
+            destino.schema_version,
+            &self.service_name,
+            &self.process_id,
+            responsibility,
+            data,
+        )
+    }
+
+    /// Avança o envelope certificado para o próximo step com a identidade do serviço configurada.
+    ///
+    /// # Errors
+    /// Retorna `EnvelopeError` se a cadeia anterior não estiver certificada ou algum campo estiver vazio.
+    pub fn avancar<T, U>(
+        &self,
+        anterior: Envelope<T>,
+        destino: EnvelopeDestino,
+        responsibility: impl Into<String>,
+        novos_dados: U,
+    ) -> Result<Envelope<U>, EnvelopeError> {
+        anterior.avancar_step(
+            destino,
+            &self.service_name,
+            &self.process_id,
+            responsibility,
+            novos_dados,
+        )
+    }
+
+    /// Avança o envelope certificado serializando `novos_dados` para `serde_json::Value`.
+    ///
+    /// # Errors
+    /// Retorna `EnvelopeError` se a cadeia anterior for inválida ou a serialização falhar.
+    pub fn avancar_value<T, U: Serialize>(
+        &self,
+        anterior: Envelope<T>,
+        destino: EnvelopeDestino,
+        responsibility: impl Into<String>,
+        novos_dados: &U,
+    ) -> Result<Envelope<serde_json::Value>, EnvelopeError> {
+        let val = serde_json::to_value(novos_dados)
+            .map_err(|e| EnvelopeError::SerializacaoJson(e.to_string()))?;
+        self.avancar(anterior, destino, responsibility, val)
+    }
 }
 
 fn validar_nao_vazio(valor: String, campo: &'static str) -> Result<String, EnvelopeError> {
@@ -310,4 +492,42 @@ fn validar_nao_vazio(valor: String, campo: &'static str) -> Result<String, Envel
         return Err(EnvelopeError::CampoObrigatorio(campo));
     }
     Ok(limpo.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn emitter_deve_iniciar_certificar_e_avancar_para_value() {
+        let emitter = EnvelopeEmitter::new("ativos.extrator", "pod-1").expect("emitter");
+        let destino_1 = EnvelopeDestino {
+            topic: "topic.ativos.acoes.listada".to_string(),
+            schema_name: "schema.ativos.acoes.listada".to_string(),
+            schema_version: "1.0.0".to_string(),
+        };
+        let mut env = emitter
+            .iniciar(destino_1, "listagem", json!({"ticker": "BBAS3"}))
+            .expect("inicial");
+
+        env.certificar_ultimo_step("infraestrutura.validador-central", "val-1")
+            .expect("certificado");
+
+        let destino_2 = EnvelopeDestino {
+            topic: "topic.ativos.cotacao.atualizada".to_string(),
+            schema_name: "schema.ativos.cotacao.atualizada".to_string(),
+            schema_version: "1.0.0".to_string(),
+        };
+        let env2 = emitter
+            .avancar_value(env, destino_2, "cotacao", &json!({"preco": "14.20"}))
+            .expect("avancado");
+
+        assert_eq!(env2.trace.len(), 2);
+        assert_eq!(env2.trace[1].service_name, "ativos.extrator");
+        let bytes = env2.to_json_bytes().expect("json bytes");
+        let parsed: Envelope<serde_json::Value> =
+            Envelope::from_json_bytes(&bytes).expect("roundtrip");
+        assert_eq!(parsed.data["preco"], "14.20");
+    }
 }

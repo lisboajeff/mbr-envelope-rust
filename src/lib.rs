@@ -5,8 +5,8 @@ pub mod types;
 
 pub use error::EnvelopeError;
 pub use types::{
-    ContextoLogEnvelope, Envelope, EnvelopeMetadata, FalhaEstruturalEvento, SchemaValidation,
-    TraceStep,
+    ContextoLogEnvelope, Envelope, EnvelopeDestino, EnvelopeEmitter, EnvelopeMetadata,
+    FalhaEstruturalEvento, SchemaValidation, TraceStep,
 };
 
 #[cfg(test)]
